@@ -1081,6 +1081,27 @@
                     formData.hearingDate = e.target.value;
                 });
             }
+            
+            const contactNameInput = document.getElementById('contactName');
+            if (contactNameInput) {
+                contactNameInput.addEventListener('input', (e) => {
+                    contactFormData.name = e.target.value;
+                });
+            }
+
+            const contactJobInput = document.getElementById('contactJob');
+            if (contactJobInput) {
+                contactJobInput.addEventListener('input', (e) => {
+                    contactFormData.job = e.target.value;
+                });
+            }
+
+            const contactPhoneInput = document.getElementById('contactPhone');
+            if (contactPhoneInput) {
+                contactPhoneInput.addEventListener('input', (e) => {
+                    contactFormData.phone = e.target.value;
+                });
+            }
         }
 
         function toggleAddForm() {
@@ -1094,4 +1115,5 @@
 </body>
 
 </html>
+
 
