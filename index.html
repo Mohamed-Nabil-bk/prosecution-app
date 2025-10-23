@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,25 +10,57 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
-        
+
         body {
             font-family: 'Cairo', sans-serif;
             margin: 0;
             padding: 0;
         }
-        
+
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
-        
+
         .animate-spin {
             animation: spin 1s linear infinite;
         }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s ease-in-out infinite;
+        }
+
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
     </style>
 </head>
+
 <body>
     <div id="root"></div>
-    
+
     <script>
         // Firebase Config
         const firebaseConfig = {
@@ -38,20 +71,25 @@
             messagingSenderId: "388256626049",
             appId: "1:388256626049:web:6a79af358f6eb4b2e76480"
         };
-        
+
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
         // State Variables
         let suspects = [];
+        let contacts = [];
         let isLoading = true;
         let showAddForm = false;
+        let showContactModal = false;
+        let showContactsList = false;
         let searchTerm = '';
+        let searchInputValue = '';
         let filterType = 'all';
         let filterValue = '';
         let expandedCards = {};
         let syncing = false;
-        
+        let editingContactId = null;
+
         let formData = {
             caseNumber: '',
             name: '',
@@ -61,7 +99,14 @@
             hearingDate: ''
         };
 
+        let contactFormData = {
+            name: '',
+            job: '',
+            phone: ''
+        };
+
         const suspectsCollection = db.collection('suspects');
+        const contactsCollection = db.collection('contacts');
 
         // SVG Icons
         const icons = {
@@ -77,10 +122,15 @@
             briefcase: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
             phone: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>',
             alertCircle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
-            calendar: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>'
+            calendar: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>',
+            users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+            edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>'
         };
 
-        // Initialize Firebase listener
+        // عرض هيكل الصفحة أولاً
+        renderSkeleton();
+
+        // Initialize Firebase listeners
         suspectsCollection.onSnapshot(
             (snapshot) => {
                 suspects = [];
@@ -90,6 +140,10 @@
                         ...doc.data()
                     });
                 });
+
+                // حذف المطلوبين الذين مر على جلستهم أسبوع
+                deleteOldSuspects();
+
                 isLoading = false;
                 syncing = false;
                 render();
@@ -103,6 +157,23 @@
             }
         );
 
+        // Initialize contacts listener
+        contactsCollection.onSnapshot(
+            (snapshot) => {
+                contacts = [];
+                snapshot.forEach((doc) => {
+                    contacts.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
+                });
+                if (!isLoading) render();
+            },
+            (error) => {
+                console.error('Error loading contacts:', error);
+            }
+        );
+
         // Helper Functions
         function isToday(dateString) {
             const today = new Date();
@@ -110,16 +181,53 @@
             return today.toDateString() === suspectDate.toDateString();
         }
 
+        function isTomorrow(dateString) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const suspectDate = new Date(dateString);
+            return tomorrow.toDateString() === suspectDate.toDateString();
+        }
+
+        async function deleteOldSuspects() {
+            const oneWeekAgo = new Date();
+            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+            const oldSuspects = suspects.filter(suspect => {
+                const hearingDate = new Date(suspect.hearingDate);
+                return hearingDate < oneWeekAgo;
+            });
+
+            for (const suspect of oldSuspects) {
+                try {
+                    await suspectsCollection.doc(suspect.id).delete();
+                    console.log('Deleted old suspect:', suspect.id);
+                } catch (error) {
+                    console.error('Error deleting old suspect:', error);
+                }
+            }
+        }
+
         function toggleCard(id) {
             expandedCards[id] = !expandedCards[id];
             render();
+        }
+
+        // Debounce function for search
+        let searchTimeout;
+        function debounceSearch(value) {
+            searchInputValue = value;
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchTerm = value;
+                render();
+            }, 300);
         }
 
         function getFilteredSuspects() {
             return suspects
                 .filter(suspect => {
                     const searchLower = searchTerm.toLowerCase();
-                    const matchesSearch = 
+                    const matchesSearch =
                         suspect.name.toLowerCase().includes(searchLower) ||
                         suspect.caseNumber.toLowerCase().includes(searchLower) ||
                         (suspect.job && suspect.job.toLowerCase().includes(searchLower)) ||
@@ -128,7 +236,7 @@
                     if (!matchesSearch) return false;
 
                     if (filterType === 'all' || !filterValue) return true;
-                    
+
                     if (filterType === 'date') {
                         return suspect.hearingDate === filterValue;
                     } else if (filterType === 'job') {
@@ -144,10 +252,10 @@
                 .sort((a, b) => {
                     const aIsToday = isToday(a.hearingDate);
                     const bIsToday = isToday(b.hearingDate);
-                    
+
                     if (aIsToday && !bIsToday) return -1;
                     if (!aIsToday && bIsToday) return 1;
-                    
+
                     return new Date(a.hearingDate) - new Date(b.hearingDate);
                 });
         }
@@ -161,13 +269,13 @@
 
             syncing = true;
             render();
-            
+
             try {
                 await suspectsCollection.add({
                     ...formData,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
-                
+
                 formData = {
                     caseNumber: '',
                     name: '',
@@ -202,15 +310,143 @@
             }
         }
 
+        // Contact Functions
+        function toggleContactModal() {
+            showContactModal = !showContactModal;
+            if (!showContactModal) {
+                editingContactId = null;
+                contactFormData = { name: '', job: '', phone: '' };
+            }
+            render();
+        }
+
+        function toggleContactsList() {
+            showContactsList = !showContactsList;
+            render();
+        }
+
+        function editContact(contact) {
+            editingContactId = contact.id;
+            contactFormData = {
+                name: contact.name,
+                job: contact.job,
+                phone: contact.phone
+            };
+            showContactModal = true;
+            showContactsList = false;
+            render();
+        }
+
+        async function handleSaveContact() {
+            if (!contactFormData.name || !contactFormData.phone) {
+                alert('برجاء إدخال الاسم ورقم الهاتف على الأقل');
+                return;
+            }
+
+            syncing = true;
+            render();
+
+            try {
+                if (editingContactId) {
+                    await contactsCollection.doc(editingContactId).update(contactFormData);
+                } else {
+                    await contactsCollection.add({
+                        ...contactFormData,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+
+                contactFormData = { name: '', job: '', phone: '' };
+                editingContactId = null;
+                showContactModal = false;
+            } catch (error) {
+                console.error('Error saving contact:', error);
+                alert('حدث خطأ في حفظ جهة الاتصال: ' + error.message);
+            } finally {
+                syncing = false;
+                render();
+            }
+        }
+
+        async function handleDeleteContact(id) {
+            if (window.confirm('هل أنت متأكد من حذف جهة الاتصال هذه؟')) {
+                syncing = true;
+                render();
+                try {
+                    await contactsCollection.doc(id).delete();
+                } catch (error) {
+                    console.error('Error deleting contact:', error);
+                    alert('حدث خطأ في حذف جهة الاتصال: ' + error.message);
+                } finally {
+                    syncing = false;
+                    render();
+                }
+            }
+        }
+
         // Render Functions
-        function renderSuspectCard(suspect, isTodayCard) {
+        function renderSkeleton() {
+            const root = document.getElementById('root');
+            root.innerHTML = `
+                <div class="min-h-screen bg-gray-50" dir="rtl">
+                    <div class="bg-blue-900 text-white p-6 shadow-lg">
+                        <div class="max-w-7xl mx-auto">
+                            <h1 class="text-3xl font-bold text-center">نظام إدارة المطلوبين</h1>
+                        </div>
+                    </div>
+
+                    <div class="max-w-7xl mx-auto p-6">
+                        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                            <div class="skeleton h-12 rounded-lg mb-4"></div>
+                            <div class="skeleton h-10 rounded-lg"></div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div class="bg-white rounded-lg shadow-md p-4">
+                                <div class="skeleton h-4 w-24 mb-2"></div>
+                                <div class="skeleton h-8 w-16"></div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-md p-4">
+                                <div class="skeleton h-4 w-24 mb-2"></div>
+                                <div class="skeleton h-8 w-16"></div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-md p-4">
+                                <div class="skeleton h-4 w-24 mb-2"></div>
+                                <div class="skeleton h-8 w-16"></div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
+                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
+                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSuspectCard(suspect, cardType) {
             const isExpanded = expandedCards[suspect.id];
-            const bgColor = isTodayCard ? 'bg-red-50 border-2 border-red-500' : 'bg-white';
-            const headerBg = isTodayCard ? 'bg-red-600' : 'bg-blue-600';
-            const buttonBg = isTodayCard ? 'bg-red-700 hover:bg-red-800' : 'bg-blue-700 hover:bg-blue-800';
-            const icon = isTodayCard ? '🔔' : '📋';
-            const prefix = isTodayCard ? 'جلسة اليوم - ' : '';
-            
+            let bgColor, headerBg, buttonBg, icon;
+
+            if (cardType === 'today') {
+                bgColor = 'bg-red-50 border-2 border-red-500';
+                headerBg = 'bg-red-600';
+                buttonBg = 'bg-red-700 hover:bg-red-800';
+                icon = '🔔';
+            } else if (cardType === 'tomorrow') {
+                bgColor = 'bg-green-50 border-2 border-green-500';
+                headerBg = 'bg-green-600';
+                buttonBg = 'bg-green-700 hover:bg-green-800';
+                icon = '⏰';
+            } else {
+                bgColor = 'bg-white';
+                headerBg = 'bg-blue-600';
+                buttonBg = 'bg-blue-700 hover:bg-blue-800';
+                icon = '📋';
+            }
+
             return `
                 <div class="rounded-lg shadow-md p-6 transition ${bgColor}">
                     <div class="${headerBg} text-white px-4 py-2 rounded-md mb-4">
@@ -247,11 +483,11 @@
                                 <span class="text-gray-600 font-bold">موعد الجلسة:</span>
                                 <p class="text-lg font-bold text-blue-600">
                                     ${new Date(suspect.hearingDate).toLocaleDateString('ar-EG', {
-                                        weekday: 'long',
-                                        year: 'numeric',
-                                        month: 'long',
-                                        day: 'numeric'
-                                    })}
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            })}
                                 </p>
                             </div>
                         </div>
@@ -271,24 +507,138 @@
             `;
         }
 
+        function renderContactModal() {
+            if (!showContactModal) return '';
+
+            return `
+                <div class="modal-overlay" onclick="if(event.target === this) toggleContactModal()">
+                    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-2xl font-bold text-gray-800">
+                                ${editingContactId ? 'تعديل جهة اتصال' : 'إضافة جهة اتصال'}
+                            </h2>
+                            <button
+                                onclick="toggleContactModal()"
+                                class="text-gray-500 hover:text-gray-700"
+                            >
+                                ${icons.x}
+                            </button>
+                        </div>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.user}
+                                    الاسم *
+                                </label>
+                                <input
+                                    type="text"
+                                    id="contactName"
+                                    value="${contactFormData.name}"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.briefcase}
+                                    الوظيفة
+                                </label>
+                                <input
+                                    type="text"
+                                    id="contactJob"
+                                    value="${contactFormData.job}"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.phone}
+                                    رقم الهاتف *
+                                </label>
+                                <input
+                                    type="tel"
+                                    id="contactPhone"
+                                    value="${contactFormData.phone}"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    required
+                                />
+                            </div>
+                        </div>
+
+                        <button
+                            onclick="handleSaveContact()"
+                            class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition disabled:bg-gray-400"
+                            ${syncing ? 'disabled' : ''}
+                        >
+                            ${syncing ? 'جاري الحفظ...' : editingContactId ? 'تحديث' : 'حفظ'}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderContactsList() {
+            if (!showContactsList) return '';
+
+            return `
+                <div class="modal-overlay" onclick="if(event.target === this) toggleContactsList()">
+                    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-2xl font-bold text-gray-800">قائمة جهات الاتصال</h2>
+                            <button
+                                onclick="toggleContactsList()"
+                                class="text-gray-500 hover:text-gray-700"
+                            >
+                                ${icons.x}
+                            </button>
+                        </div>
+
+                        ${contacts.length === 0 ? `
+                            <div class="text-center py-8 text-gray-500">
+                                لا توجد جهات اتصال حالياً
+                            </div>
+                        ` : `
+                            <div class="space-y-3">
+                                ${contacts.map(contact => `
+                                    <div class="bg-gray-50 rounded-lg p-4 flex justify-between items-center">
+                                        <div class="flex-1">
+                                            <div class="font-bold text-lg text-gray-800">${contact.name}</div>
+                                            <div class="text-gray-600 text-sm">${contact.job || '-'}</div>
+                                            <div class="text-blue-600 font-medium" dir="ltr">${contact.phone}</div>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <button
+                                                onclick='editContact(${JSON.stringify(contact)})'
+                                                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
+                                            >
+                                                ${icons.edit}
+                                            </button>
+                                            <button
+                                                onclick="handleDeleteContact('${contact.id}')"
+                                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
+                                            >
+                                                ${icons.xSmall}
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
         function render() {
             const root = document.getElementById('root');
-            
-            if (isLoading) {
-                root.innerHTML = `
-                    <div class="min-h-screen bg-gray-50 flex items-center justify-center">
-                        <div class="text-center">
-                            <div class="text-xl text-gray-600 mb-4">جاري التحميل من السحابة...</div>
-                            <div class="animate-spin inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
-                        </div>
-                    </div>
-                `;
-                return;
-            }
 
             const filteredSuspects = getFilteredSuspects();
             const todaySuspects = filteredSuspects.filter(s => isToday(s.hearingDate));
-            const otherSuspects = filteredSuspects.filter(s => !isToday(s.hearingDate));
+            const tomorrowSuspects = filteredSuspects.filter(s => isTomorrow(s.hearingDate));
+            const otherSuspects = filteredSuspects.filter(s => !isToday(s.hearingDate) && !isTomorrow(s.hearingDate));
 
             root.innerHTML = `
                 <div class="min-h-screen bg-gray-50" dir="rtl">
@@ -296,6 +646,7 @@
                         <div class="flex justify-between items-center max-w-7xl mx-auto">
                             <div class="flex-1">
                                 <h1 class="text-3xl font-bold text-center">نظام إدارة المطلوبين</h1>
+                                <p class="text-center text-blue-200 mt-2">النيابة الإدارية</p>
                             </div>
                             ${syncing ? `
                                 <div class="flex items-center gap-2 bg-blue-800 px-4 py-2 rounded-lg">
@@ -323,7 +674,7 @@
                                         type="text"
                                         id="searchInput"
                                         placeholder="بحث عام (الاسم، رقم القضية، الوظيفة...)"
-                                        value="${searchTerm}"
+                                        value="${searchInputValue}"
                                         class="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                 </div>
@@ -335,6 +686,23 @@
                                 >
                                     ${icons.plus}
                                     إضافة مطلوب جديد
+                                </button>
+
+                                <button
+                                    onclick="toggleContactModal()"
+                                    class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
+                                    ${syncing ? 'disabled' : ''}
+                                >
+                                    ${icons.users}
+                                    إضافة جهة اتصال
+                                </button>
+
+                                <button
+                                    onclick="toggleContactsList()"
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
+                                >
+                                    ${icons.users}
+                                    عرض القائمة
                                 </button>
                             </div>
 
@@ -475,7 +843,7 @@
                             </div>
                         ` : ''}
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                             <div class="bg-white rounded-lg shadow-md p-4">
                                 <div class="text-gray-600 text-sm">إجمالي المطلوبين</div>
                                 <div class="text-3xl font-bold text-blue-600">${suspects.length}</div>
@@ -487,8 +855,14 @@
                                 </div>
                             </div>
                             <div class="bg-white rounded-lg shadow-md p-4">
+                                <div class="text-gray-600 text-sm">جلسات الغد</div>
+                                <div class="text-3xl font-bold text-green-600">
+                                    ${suspects.filter(s => isTomorrow(s.hearingDate)).length}
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-md p-4">
                                 <div class="text-gray-600 text-sm">نتائج البحث</div>
-                                <div class="text-3xl font-bold text-green-600">${filteredSuspects.length}</div>
+                                <div class="text-3xl font-bold text-purple-600">${filteredSuspects.length}</div>
                             </div>
                         </div>
 
@@ -503,7 +877,18 @@
                                         🔔 جلسات اليوم
                                     </h2>
                                     <div class="space-y-4">
-                                        ${todaySuspects.map(s => renderSuspectCard(s, true)).join('')}
+                                        ${todaySuspects.map(s => renderSuspectCard(s, 'today')).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            ${tomorrowSuspects.length > 0 ? `
+                                <div class="mb-8">
+                                    <h2 class="text-2xl font-bold text-green-600 mb-4 flex items-center gap-2">
+                                        ⏰ جلسات الغد
+                                    </h2>
+                                    <div class="space-y-4">
+                                        ${tomorrowSuspects.map(s => renderSuspectCard(s, 'tomorrow')).join('')}
                                     </div>
                                 </div>
                             ` : ''}
@@ -514,12 +899,15 @@
                                         📅 جلسات أخرى
                                     </h2>
                                     <div class="space-y-4">
-                                        ${otherSuspects.map(s => renderSuspectCard(s, false)).join('')}
+                                        ${otherSuspects.map(s => renderSuspectCard(s, 'other')).join('')}
                                     </div>
                                 </div>
                             ` : ''}
                         `}
                     </div>
+
+                    ${renderContactModal()}
+                    ${renderContactsList()}
                 </div>
             `;
 
@@ -531,8 +919,7 @@
             const searchInput = document.getElementById('searchInput');
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
-                    searchTerm = e.target.value;
-                    render();
+                    debounceSearch(e.target.value);
                 });
             }
 
@@ -595,6 +982,28 @@
                     formData.hearingDate = e.target.value;
                 });
             }
+
+            // Contact form inputs
+            const contactNameInput = document.getElementById('contactName');
+            if (contactNameInput) {
+                contactNameInput.addEventListener('input', (e) => {
+                    contactFormData.name = e.target.value;
+                });
+            }
+
+            const contactJobInput = document.getElementById('contactJob');
+            if (contactJobInput) {
+                contactJobInput.addEventListener('input', (e) => {
+                    contactFormData.job = e.target.value;
+                });
+            }
+
+            const contactPhoneInput = document.getElementById('contactPhone');
+            if (contactPhoneInput) {
+                contactPhoneInput.addEventListener('input', (e) => {
+                    contactFormData.phone = e.target.value;
+                });
+            }
         }
 
         function toggleAddForm() {
@@ -606,5 +1015,5 @@
         render();
     </script>
 </body>
-</html>
 
+</html>
