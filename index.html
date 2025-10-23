@@ -55,6 +55,26 @@
                 background-position: -200% 0;
             }
         }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-10px);
+            }
+
+            75% {
+                transform: translateX(10px);
+            }
+        }
+
+        .shake {
+            animation: shake 0.5s;
+        }
     </style>
 </head>
 
@@ -62,7 +82,7 @@
     <div id="root"></div>
 
     <script>
-        // Firebase Config
+        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCqcvVILX5Dz43EkBqmuISAABR5Z_RYlbU",
             authDomain: "prosecution-app.firebaseapp.com",
@@ -89,6 +109,11 @@
         let expandedCards = {};
         let syncing = false;
         let editingContactId = null;
+        let isAuthenticated = false;
+        let pinInput = '';
+        let showPinError = false;
+
+        const CORRECT_PIN = "2525";
 
         let formData = {
             caseNumber: '',
@@ -124,55 +149,53 @@
             alertCircle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
             calendar: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>',
             users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
-            edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>'
+            edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>',
+            lock: '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'
         };
 
-        // عرض هيكل الصفحة أولاً
-        renderSkeleton();
-
-        // Initialize Firebase listeners
-        suspectsCollection.onSnapshot(
-            (snapshot) => {
-                suspects = [];
-                snapshot.forEach((doc) => {
-                    suspects.push({
-                        id: doc.id,
-                        ...doc.data()
+        // Initialize Firebase listeners (only when authenticated)
+        function initializeFirebase() {
+            suspectsCollection.onSnapshot(
+                (snapshot) => {
+                    suspects = [];
+                    snapshot.forEach((doc) => {
+                        suspects.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
                     });
-                });
 
-                // حذف المطلوبين الذين مر على جلستهم أسبوع
-                deleteOldSuspects();
+                    deleteOldSuspects();
 
-                isLoading = false;
-                syncing = false;
-                render();
-            },
-            (error) => {
-                console.error('Error loading data:', error);
-                alert('حدث خطأ في تحميل البيانات: ' + error.message);
-                isLoading = false;
-                syncing = false;
-                render();
-            }
-        );
+                    isLoading = false;
+                    syncing = false;
+                    render();
+                },
+                (error) => {
+                    console.error('Error loading data:', error);
+                    alert('حدث خطأ في تحميل البيانات: ' + error.message);
+                    isLoading = false;
+                    syncing = false;
+                    render();
+                }
+            );
 
-        // Initialize contacts listener
-        contactsCollection.onSnapshot(
-            (snapshot) => {
-                contacts = [];
-                snapshot.forEach((doc) => {
-                    contacts.push({
-                        id: doc.id,
-                        ...doc.data()
+            contactsCollection.onSnapshot(
+                (snapshot) => {
+                    contacts = [];
+                    snapshot.forEach((doc) => {
+                        contacts.push({
+                            id: doc.id,
+                            ...doc.data()
+                        });
                     });
-                });
-                if (!isLoading) render();
-            },
-            (error) => {
-                console.error('Error loading contacts:', error);
-            }
-        );
+                    if (!isLoading) render();
+                },
+                (error) => {
+                    console.error('Error loading contacts:', error);
+                }
+            );
+        }
 
         // Helper Functions
         function isToday(dateString) {
@@ -212,39 +235,52 @@
             render();
         }
 
-        // Debounce function for search
-        let searchTimeout;
-        function debounceSearch(value) {
-            searchInputValue = value;
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                searchTerm = value;
-                render();
-            }, 300);
+        // Enhanced search with Arabic normalization
+        function normalizeArabicText(text) {
+            if (!text) return '';
+            return text
+                .toLowerCase()
+                .replace(/أ|إ|آ/g, 'ا')
+                .replace(/ة/g, 'ه')
+                .replace(/ى/g, 'ي')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function enhancedSearch(suspect, searchTerm) {
+            if (!searchTerm) return true;
+
+            const normalizedSearch = normalizeArabicText(searchTerm);
+            const searchParts = normalizedSearch.split(' ').filter(p => p.length > 0);
+
+            const searchableFields = [
+                normalizeArabicText(suspect.name),
+                normalizeArabicText(suspect.caseNumber),
+                normalizeArabicText(suspect.job),
+                normalizeArabicText(suspect.role),
+                normalizeArabicText(suspect.phone)
+            ];
+
+            return searchParts.every(part =>
+                searchableFields.some(field => field.includes(part))
+            );
         }
 
         function getFilteredSuspects() {
             return suspects
                 .filter(suspect => {
-                    const searchLower = searchTerm.toLowerCase();
-                    const matchesSearch =
-                        suspect.name.toLowerCase().includes(searchLower) ||
-                        suspect.caseNumber.toLowerCase().includes(searchLower) ||
-                        (suspect.job && suspect.job.toLowerCase().includes(searchLower)) ||
-                        (suspect.role && suspect.role.toLowerCase().includes(searchLower));
-
-                    if (!matchesSearch) return false;
+                    if (!enhancedSearch(suspect, searchTerm)) return false;
 
                     if (filterType === 'all' || !filterValue) return true;
 
                     if (filterType === 'date') {
                         return suspect.hearingDate === filterValue;
                     } else if (filterType === 'job') {
-                        return suspect.job && suspect.job.toLowerCase().includes(filterValue.toLowerCase());
+                        return normalizeArabicText(suspect.job).includes(normalizeArabicText(filterValue));
                     } else if (filterType === 'caseNumber') {
-                        return suspect.caseNumber.includes(filterValue);
+                        return normalizeArabicText(suspect.caseNumber).includes(normalizeArabicText(filterValue));
                     } else if (filterType === 'name') {
-                        return suspect.name.toLowerCase().includes(filterValue.toLowerCase());
+                        return normalizeArabicText(suspect.name).includes(normalizeArabicText(filterValue));
                     }
 
                     return true;
@@ -258,6 +294,42 @@
 
                     return new Date(a.hearingDate) - new Date(b.hearingDate);
                 });
+        }
+
+        // PIN Authentication
+        function handlePinInput(digit) {
+            if (pinInput.length < 4) {
+                pinInput += digit;
+                render();
+
+                if (pinInput.length === 4) {
+                    setTimeout(checkPin, 100);
+                }
+            }
+        }
+
+        function checkPin() {
+            if (pinInput === CORRECT_PIN) {
+                isAuthenticated = true;
+                pinInput = '';
+                showPinError = false;
+                initializeFirebase();
+                render();
+            } else {
+                showPinError = true;
+                pinInput = '';
+                render();
+                setTimeout(() => {
+                    showPinError = false;
+                    render();
+                }, 2000);
+            }
+        }
+
+        function clearPin() {
+            pinInput = '';
+            showPinError = false;
+            render();
         }
 
         // Event Handlers
@@ -384,49 +456,64 @@
             }
         }
 
-        // Render Functions
-        function renderSkeleton() {
-            const root = document.getElementById('root');
-            root.innerHTML = `
-                <div class="min-h-screen bg-gray-50" dir="rtl">
-                    <div class="bg-blue-900 text-white p-6 shadow-lg">
-                        <div class="max-w-7xl mx-auto">
-                            <h1 class="text-3xl font-bold text-center">نظام إدارة المطلوبين</h1>
-                            <p class="text-center text-blue-200 mt-2">النيابة الإدارية</p>
-                        </div>
-                    </div>
-
-                    <div class="max-w-7xl mx-auto p-6">
-                        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                            <div class="skeleton h-12 rounded-lg mb-4"></div>
-                            <div class="skeleton h-10 rounded-lg"></div>
+        // Render PIN Screen
+        function renderPinScreen() {
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md ${showPinError ? 'shake' : ''}">
+                        <div class="text-center mb-8">
+                            <div class="flex justify-center mb-4 text-blue-600">
+                                ${icons.lock}
+                            </div>
+                            <h1 class="text-3xl font-bold text-gray-800 mb-2">نظام إدارة المطلوبين</h1>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="skeleton h-4 w-24 mb-2"></div>
-                                <div class="skeleton h-8 w-16"></div>
+                        <div class="mb-8">
+                            <p class="text-center text-gray-700 font-bold mb-4">أدخل الرقم السري</p>
+                            <div class="flex justify-center gap-3 mb-6">
+                                ${[0, 1, 2, 3].map(i => `
+                                    <div class="w-14 h-14 border-2 ${showPinError ? 'border-red-500' : 'border-blue-500'} rounded-lg flex items-center justify-center text-2xl font-bold ${pinInput.length > i ? 'bg-blue-500 text-white' : 'bg-gray-50'}">
+                                        ${pinInput.length > i ? '●' : ''}
+                                    </div>
+                                `).join('')}
                             </div>
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="skeleton h-4 w-24 mb-2"></div>
-                                <div class="skeleton h-8 w-16"></div>
-                            </div>
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="skeleton h-4 w-24 mb-2"></div>
-                                <div class="skeleton h-8 w-16"></div>
-                            </div>
+                            ${showPinError ? `
+                                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-center mb-4">
+                                    رقم سري خاطئ! حاول مرة أخرى
+                                </div>
+                            ` : ''}
                         </div>
 
-                        <div class="space-y-4">
-                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
-                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
-                            <div class="bg-white rounded-lg shadow-md p-6 skeleton h-32"></div>
+                        <div class="grid grid-cols-3 gap-3 mb-4">
+                            ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => `
+                                <button
+                                    onclick="handlePinInput('${num}')"
+                                    class="bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xl py-4 rounded-lg transition active:scale-95"
+                                >
+                                    ${num}
+                                </button>
+                            `).join('')}
+                            <div></div>
+                            <button
+                                onclick="handlePinInput('0')"
+                                class="bg-blue-50 hover:bg-blue-100 text-blue-900 font-bold text-xl py-4 rounded-lg transition active:scale-95"
+                            >
+                                0
+                            </button>
+                           <button
+                                onclick="clearPin()"
+                                class="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-4 rounded-lg transition active:scale-95 flex items-center justify-center"
+                            >
+                                ${icons.x}
+                            </button>
+
                         </div>
                     </div>
                 </div>
             `;
         }
 
+        // Render Functions
         function renderSuspectCard(suspect, cardType) {
             const isExpanded = expandedCards[suspect.id];
             let bgColor, headerBg, buttonBg, icon;
@@ -449,84 +536,315 @@
             }
 
             return `
-                <div class="rounded-lg shadow-md p-6 transition ${bgColor}">
-                    <div class="${headerBg} text-white px-4 py-2 rounded-md mb-4">
-                        <div class="flex items-center justify-between">
-                            <span class="font-bold">${icon} القضية رقم: ${suspect.caseNumber}</span>
-                            <button
-                                onclick="toggleCard('${suspect.id}')"
-                                class="${buttonBg} px-3 py-1 rounded-md flex items-center gap-2 transition"
-                            >
-                                ${isExpanded ? icons.chevronUp + ' إخفاء' : icons.chevronDown + ' عرض'}
-                            </button>
-                        </div>
-                    </div>
+        <div class="rounded-lg shadow-md p-6 transition ${bgColor}">
+            <div class="${headerBg} text-white px-4 py-2 rounded-md mb-4">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold">${icon} القضية رقم: ${suspect.caseNumber}</span>
+                    <button
+                        onclick="toggleCard('${suspect.id}')"
+                        class="${buttonBg} px-3 py-1 rounded-md flex items-center gap-2 transition"
+                    >
+                        ${isExpanded ? icons.chevronUp + ' إخفاء' : icons.chevronDown + ' عرض'}
+                    </button>
+                </div>
+            </div>
 
-                    ${isExpanded ? `
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <div>
-                                <span class="text-gray-600 font-bold">الاسم:</span>
-                                <p class="text-lg">${suspect.name}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-600 font-bold">الوظيفة:</span>
-                                <p class="text-lg">${suspect.job || '-'}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-600 font-bold">رقم الهاتف:</span>
-                                <p class="text-lg" dir="ltr">${suspect.phone || '-'}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-600 font-bold">الصفة:</span>
-                                <p class="text-lg">${suspect.role || '-'}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-600 font-bold">موعد الجلسة:</span>
-                                <p class="text-lg font-bold text-blue-600">
-                                    ${new Date(suspect.hearingDate).toLocaleDateString('ar-EG', {
+            ${isExpanded ? `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <span class="text-gray-600 font-bold">الاسم:</span>
+                        <p class="text-lg">${suspect.name}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-bold">الوظيفة:</span>
+                        <p class="text-lg">${suspect.job || '-'}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-bold">رقم الهاتف:</span>
+                        <p class="text-lg font-bold text-green-600">${suspect.phone || '-'}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-bold">الصفة:</span>
+                        <p class="text-lg">${suspect.role || '-'}</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-600 font-bold">موعد الجلسة:</span>
+                        <p class="text-lg font-bold text-blue-600">
+                            ${new Date(suspect.hearingDate).toLocaleDateString('ar-EG', {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
             })}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div class="mt-4 flex justify-end">
-                            <button
-                                onclick="handleDeleteSuspect('${suspect.id}')"
-                                class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:bg-gray-400"
-                                ${syncing ? 'disabled' : ''}
-                            >
-                                ${icons.xSmall}
-                                حذف
-                            </button>
-                        </div>
-                    ` : ''}
+                        </p>
+                    </div>
                 </div>
-            `;
+
+                <div class="mt-4 flex justify-end">
+                    <button
+                        onclick="handleDeleteSuspect('${suspect.id}')"
+                        class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition disabled:bg-gray-400"
+                        ${syncing ? 'disabled' : ''}
+                    >
+                        ${icons.xSmall}
+                        حذف
+                    </button>
+                </div>
+            ` : ''}
+        </div>
+    `;
         }
 
         function renderContactModal() {
             if (!showContactModal) return '';
 
             return `
-                <div class="modal-overlay" onclick="if(event.target === this) toggleContactModal()">
-                    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4" onclick="event.stopPropagation()">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-2xl font-bold text-gray-800">
-                                ${editingContactId ? 'تعديل جهة اتصال' : 'إضافة جهة اتصال'}
-                            </h2>
+        <div class="modal-overlay" onclick="if(event.target === this) toggleContactModal()">
+            <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4" onclick="event.stopPropagation()">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        ${editingContactId ? 'تعديل جهة اتصال' : 'إضافة جهة اتصال'}
+                    </h2>
+                    <button
+                        onclick="toggleContactModal()"
+                        class="text-gray-500 hover:text-gray-700"
+                    >
+                        ${icons.x}
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                            ${icons.user}
+                            الاسم *
+                        </label>
+                        <input
+                            type="text"
+                            id="contactName"
+                            value="${contactFormData.name}"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                            ${icons.briefcase}
+                            الوظيفة
+                        </label>
+                        <input
+                            type="text"
+                            id="contactJob"
+                            value="${contactFormData.job}"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                            ${icons.phone}
+                            رقم الهاتف *
+                        </label>
+                        <input
+                            type="tel"
+                            id="contactPhone"
+                            value="${contactFormData.phone}"
+                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            required
+                        />
+                    </div>
+                </div>
+
+                <button
+                    onclick="handleSaveContact()"
+                    class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition disabled:bg-gray-400"
+                    ${syncing ? 'disabled' : ''}
+                >
+                    ${syncing ? 'جاري الحفظ...' : editingContactId ? 'تحديث' : 'حفظ'}
+                </button>
+            </div>
+        </div>
+    `;
+        }
+
+        function renderContactsList() {
+            if (!showContactsList) return '';
+
+            return `
+        <div class="modal-overlay" onclick="if(event.target === this) toggleContactsList()">
+            <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800">قائمة جهات الاتصال</h2>
+                    <button
+                        onclick="toggleContactsList()"
+                        class="text-gray-500 hover:text-gray-700"
+                    >
+                        ${icons.x}
+                    </button>
+                </div>
+
+                ${contacts.length === 0 ? `
+                    <div class="text-center py-8 text-gray-500">
+                        لا توجد جهات اتصال حالياً
+                    </div>
+                ` : `
+                    <div class="space-y-3">
+                    ${contacts.map(contact => `
+                        <div class="bg-gray-50 rounded-lg p-4 relative">
+                        <div class="flex flex-col">
+                            <div class="flex-1">
+                            <div class="font-bold text-lg text-gray-800">${contact.name}</div>
+                            <div class="text-gray-600 text-sm">${contact.job || '-'}</div>
+                            <div class="text-green-600 font-bold mt-4">${contact.phone}</div>
+                            </div>
+
+                            <div class="absolute bottom-3 left-3 flex gap-2">
                             <button
-                                onclick="toggleContactModal()"
+                                onclick='editContact(${JSON.stringify(contact)})'
+                                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
+                            >
+                                ${icons.edit}
+                            </button>
+                            <button
+                                onclick="handleDeleteContact('${contact.id}')"
+                                class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
+                            >
+                                ${icons.xSmall}
+                            </button>
+                            </div>
+                        </div>
+                        </div>
+                    `).join('')}
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
+        }
+
+        function render() {
+            const root = document.getElementById('root');
+
+            // Show PIN screen if not authenticated
+            if (!isAuthenticated) {
+                root.innerHTML = renderPinScreen();
+                return;
+            }
+
+            const filteredSuspects = getFilteredSuspects();
+            const todaySuspects = filteredSuspects.filter(s => isToday(s.hearingDate));
+            const tomorrowSuspects = filteredSuspects.filter(s => isTomorrow(s.hearingDate));
+            const otherSuspects = filteredSuspects.filter(s => !isToday(s.hearingDate) && !isTomorrow(s.hearingDate));
+
+            root.innerHTML = `
+        <div class="min-h-screen bg-gray-50" dir="rtl">
+            <div class="bg-blue-900 text-white p-6 shadow-lg">
+                <div class="flex justify-between items-center max-w-7xl mx-auto">
+                    <div class="flex-1">
+                        <h1 class="text-3xl font-bold text-center">نظام إدارة المطلوبين</h1>
+                    </div>
+                    ${syncing ? `
+                        <div class="flex items-center gap-2 bg-blue-800 px-4 py-2 rounded-lg">
+                            <div class="animate-spin">${icons.refresh}</div>
+                            <span class="text-sm">مزامنة...</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+
+            <div class="max-w-7xl mx-auto p-6">
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <div class="flex flex-col md:flex-row gap-4 mb-4">
+                        <div class="flex-1 relative">
+                            <div class="absolute right-3 top-3 text-gray-400">
+                                ${icons.search}
+                            </div>
+                            <input
+                                type="text"
+                                id="searchInput"
+                                placeholder="بحث (الاسم، رقم القضية، الوظيفة...)"
+                                value="${searchInputValue}"
+                                class="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                        </div>
+
+                        <button
+                            onclick="toggleAddForm()"
+                            class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
+                            ${syncing ? 'disabled' : ''}
+                        >
+                            ${icons.plus}
+                            إضافة مطلوب جديد
+                        </button>
+
+                        <button
+                            onclick="toggleContactModal()"
+                            class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
+                            ${syncing ? 'disabled' : ''}
+                        >
+                            ${icons.users}
+                            إضافة جهة اتصال
+                        </button>
+
+                        <button
+                            onclick="toggleContactsList()"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
+                        >
+                            ${icons.users}
+                            عرض القائمة
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col md:flex-row gap-4">
+                        <select
+                            id="filterType"
+                            class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="all" ${filterType === 'all' ? 'selected' : ''}>جميع السجلات</option>
+                            <option value="date" ${filterType === 'date' ? 'selected' : ''}>فلترة بالتاريخ</option>
+                        </select>
+
+                        ${filterType !== 'all' ? `
+                            <input
+                                type="${filterType === 'date' ? 'date' : 'text'}"
+                                id="filterValue"
+                                placeholder="أدخل ${filterType === 'date' ? 'التاريخ' : filterType === 'job' ? 'الوظيفة' : filterType === 'caseNumber' ? 'رقم القضية' : 'الاسم'}"
+                                value="${filterValue}"
+                                class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            />
+                        ` : ''}
+                    </div>
+                </div>
+
+                ${showAddForm ? `
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-2xl font-bold text-gray-800">إضافة مطلوب جديد</h2>
+                            <button
+                                onclick="toggleAddForm()"
                                 class="text-gray-500 hover:text-gray-700"
+                                ${syncing ? 'disabled' : ''}
                             >
                                 ${icons.x}
                             </button>
                         </div>
 
-                        <div class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.fileText}
+                                    رقم القضية *
+                                </label>
+                                <input
+                                    type="text"
+                                    id="caseNumber"
+                                    value="${formData.caseNumber}"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    required
+                                />
+                            </div>
+
                             <div>
                                 <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
                                     ${icons.user}
@@ -534,8 +852,8 @@
                                 </label>
                                 <input
                                     type="text"
-                                    id="contactName"
-                                    value="${contactFormData.name}"
+                                    id="name"
+                                    value="${formData.name}"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                     required
                                 />
@@ -548,8 +866,8 @@
                                 </label>
                                 <input
                                     type="text"
-                                    id="contactJob"
-                                    value="${contactFormData.job}"
+                                    id="job"
+                                    value="${formData.job}"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                 />
                             </div>
@@ -557,12 +875,45 @@
                             <div>
                                 <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
                                     ${icons.phone}
-                                    رقم الهاتف *
+                                    رقم الهاتف
                                 </label>
                                 <input
                                     type="tel"
-                                    id="contactPhone"
-                                    value="${contactFormData.phone}"
+                                    id="phone"
+                                    value="${formData.phone}"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.alertCircle}
+                                    الصفة
+                                </label>
+                                <select
+                                    id="role"
+                                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                >
+                                    <option value="">-- اختر الصفة --</option>
+                                    <option value="متهم" ${formData.role === 'متهم' ? 'selected' : ''}>متهم</option>
+                                    <option value="شاهد" ${formData.role === 'شاهد' ? 'selected' : ''}>شاهد</option>
+                                    <option value="شاكي" ${formData.role === 'شاكي' ? 'selected' : ''}>شاكي</option>
+                                    <option value="فاحص" ${formData.role === 'فاحص' ? 'selected' : ''}>فاحص</option>
+                                    <option value="مفتش" ${formData.role === 'مفتش' ? 'selected' : ''}>مفتش</option>
+                                    <option value="محامي" ${formData.role === 'محامي' ? 'selected' : ''}>محامي</option>
+                                    <option value="أخري" ${formData.role === 'أخري' ? 'selected' : ''}>أخري</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
+                                    ${icons.calendar}
+                                    موعد الجلسة *
+                                </label>
+                                <input
+                                    type="date"
+                                    id="hearingDate"
+                                    value="${formData.hearingDate}"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                     required
                                 />
@@ -570,354 +921,102 @@
                         </div>
 
                         <button
-                            onclick="handleSaveContact()"
-                            class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition disabled:bg-gray-400"
+                            onclick="handleAddSuspect()"
+                            class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition disabled:bg-gray-400"
                             ${syncing ? 'disabled' : ''}
                         >
-                            ${syncing ? 'جاري الحفظ...' : editingContactId ? 'تحديث' : 'حفظ'}
+                            ${syncing ? 'جاري الحفظ...' : 'حفظ البيانات'}
                         </button>
                     </div>
-                </div>
-            `;
-        }
+                ` : ''}
 
-        function renderContactsList() {
-            if (!showContactsList) return '';
-
-            return `
-                <div class="modal-overlay" onclick="if(event.target === this) toggleContactsList()">
-                    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-2xl font-bold text-gray-800">قائمة جهات الاتصال</h2>
-                            <button
-                                onclick="toggleContactsList()"
-                                class="text-gray-500 hover:text-gray-700"
-                            >
-                                ${icons.x}
-                            </button>
-                        </div>
-
-                        ${contacts.length === 0 ? `
-                            <div class="text-center py-8 text-gray-500">
-                                لا توجد جهات اتصال حالياً
-                            </div>
-                        ` : `
-                            <div class="space-y-3">
-                            ${contacts.map(contact => `
-                                <div class="bg-gray-50 rounded-lg p-4 relative">
-                                <div class="flex flex-col">
-                                    <!-- محتوى النصوص -->
-                                    <div class="flex-1">
-                                    <div class="font-bold text-lg text-gray-800">${contact.name}</div>
-                                    <div class="text-gray-600 text-sm">${contact.job || '-'}</div>
-                                    <div class="text-blue-600 font-medium mt-4">${contact.phone}</div>
-                                    </div>
-
-                                    <!-- الأزرار في الأسفل يسار -->
-                                    <div class="absolute bottom-3 left-3 flex gap-2">
-                                    <button
-                                        onclick='editContact(${JSON.stringify(contact)})'
-                                        class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
-                                    >
-                                        ${icons.edit}
-                                    </button>
-                                    <button
-                                        onclick="handleDeleteContact('${contact.id}')"
-                                        class="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg flex items-center gap-1"
-                                    >
-                                        ${icons.xSmall}
-                                    </button>
-                                    </div>
-                                </div>
-                                </div>
-                            `).join('')}
-                            </div>
-                        `}
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="text-gray-600 text-sm">إجمالي المطلوبين</div>
+                        <div class="text-3xl font-bold text-blue-600">${suspects.length}</div>
                     </div>
-                </div>
-            `;
-        }
-
-        function render() {
-            const root = document.getElementById('root');
-
-            const filteredSuspects = getFilteredSuspects();
-            const todaySuspects = filteredSuspects.filter(s => isToday(s.hearingDate));
-            const tomorrowSuspects = filteredSuspects.filter(s => isTomorrow(s.hearingDate));
-            const otherSuspects = filteredSuspects.filter(s => !isToday(s.hearingDate) && !isTomorrow(s.hearingDate));
-
-            root.innerHTML = `
-                <div class="min-h-screen bg-gray-50" dir="rtl">
-                    <div class="bg-blue-900 text-white p-6 shadow-lg">
-                        <div class="flex justify-between items-center max-w-7xl mx-auto">
-                            <div class="flex-1">
-                                <h1 class="text-3xl font-bold text-center">نظام إدارة المطلوبين</h1>
-                            </div>
-                            ${syncing ? `
-                                <div class="flex items-center gap-2 bg-blue-800 px-4 py-2 rounded-lg">
-                                    <div class="animate-spin">${icons.refresh}</div>
-                                    <span class="text-sm">مزامنة...</span>
-                                </div>
-                            ` : ''}
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="text-gray-600 text-sm">جلسات اليوم</div>
+                        <div class="text-3xl font-bold text-red-600">
+                            ${suspects.filter(s => isToday(s.hearingDate)).length}
                         </div>
                     </div>
-
-                    <div class="max-w-7xl mx-auto p-6">
-                        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-                            <p class="text-sm text-green-800 flex items-center gap-2">
-                                ✅ <strong>متصل بالسحابة:</strong> جميع التغييرات يتم حفظها تلقائيًا ومشاركتها مع جميع الأجهزة فورًا
-                            </p>
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="text-gray-600 text-sm">جلسات الغد</div>
+                        <div class="text-3xl font-bold text-green-600">
+                            ${suspects.filter(s => isTomorrow(s.hearingDate)).length}
                         </div>
-
-                        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                            <div class="flex flex-col md:flex-row gap-4 mb-4">
-                                <div class="flex-1 relative">
-                                    <div class="absolute right-3 top-3 text-gray-400">
-                                        ${icons.search}
-                                    </div>
-                                    <input
-                                        type="text"
-                                        id="searchInput"
-                                        placeholder="بحث عام (الاسم، رقم القضية، الوظيفة...)"
-                                        value="${searchInputValue}"
-                                        class="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    />
-                                </div>
-
-                                <button
-                                    onclick="toggleAddForm()"
-                                    class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
-                                    ${syncing ? 'disabled' : ''}
-                                >
-                                    ${icons.plus}
-                                    إضافة مطلوب جديد
-                                </button>
-
-                                <button
-                                    onclick="toggleContactModal()"
-                                    class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
-                                    ${syncing ? 'disabled' : ''}
-                                >
-                                    ${icons.users}
-                                    إضافة جهة اتصال
-                                </button>
-
-                                <button
-                                    onclick="toggleContactsList()"
-                                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg flex items-center justify-center gap-2 font-bold transition"
-                                >
-                                    ${icons.users}
-                                    عرض القائمة
-                                </button>
-                            </div>
-
-                            <div class="flex flex-col md:flex-row gap-4">
-                                <select
-                                    id="filterType"
-                                    class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                >
-                                    <option value="all" ${filterType === 'all' ? 'selected' : ''}>جميع السجلات</option>
-                                    <option value="date" ${filterType === 'date' ? 'selected' : ''}>فلترة بالتاريخ</option>
-                                    <option value="job" ${filterType === 'job' ? 'selected' : ''}>فلترة بالوظيفة</option>
-                                    <option value="caseNumber" ${filterType === 'caseNumber' ? 'selected' : ''}>فلترة برقم القضية</option>
-                                    <option value="name" ${filterType === 'name' ? 'selected' : ''}>فلترة بالاسم</option>
-                                </select>
-
-                                ${filterType !== 'all' ? `
-                                    <input
-                                        type="${filterType === 'date' ? 'date' : 'text'}"
-                                        id="filterValue"
-                                        placeholder="أدخل ${filterType === 'date' ? 'التاريخ' : filterType === 'job' ? 'الوظيفة' : filterType === 'caseNumber' ? 'رقم القضية' : 'الاسم'}"
-                                        value="${filterValue}"
-                                        class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                    />
-                                ` : ''}
-                            </div>
-                        </div>
-
-                        ${showAddForm ? `
-                            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                                <div class="flex justify-between items-center mb-4">
-                                    <h2 class="text-2xl font-bold text-gray-800">إضافة مطلوب جديد</h2>
-                                    <button
-                                        onclick="toggleAddForm()"
-                                        class="text-gray-500 hover:text-gray-700"
-                                        ${syncing ? 'disabled' : ''}
-                                    >
-                                        ${icons.x}
-                                    </button>
-                                </div>
-
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.fileText}
-                                            رقم القضية *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="caseNumber"
-                                            value="${formData.caseNumber}"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                            required
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.user}
-                                            الاسم *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="name"
-                                            value="${formData.name}"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                            required
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.briefcase}
-                                            الوظيفة
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="job"
-                                            value="${formData.job}"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.phone}
-                                            رقم الهاتف
-                                        </label>
-                                        <input
-                                            type="tel"
-                                            id="phone"
-                                            value="${formData.phone}"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.alertCircle}
-                                            الصفة
-                                        </label>
-                                        <select
-                                            id="role"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                        >
-                                            <option value="">-- اختر الصفة --</option>
-                                            <option value="متهم" ${formData.role === 'متهم' ? 'selected' : ''}>متهم</option>
-                                            <option value="شاهد" ${formData.role === 'شاهد' ? 'selected' : ''}>شاهد</option>
-                                            <option value="شاكي" ${formData.role === 'شاكي' ? 'selected' : ''}>شاكي</option>
-                                            <option value="فاحص" ${formData.role === 'فاحص' ? 'selected' : ''}>فاحص</option>
-                                            <option value="مفتش" ${formData.role === 'مفتش' ? 'selected' : ''}>مفتش</option>
-                                            <option value="محامي" ${formData.role === 'محامي' ? 'selected' : ''}>محامي</option>
-                                            <option value="أخري" ${formData.role === 'أخري' ? 'selected' : ''}>أخري</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-gray-700 font-bold mb-2 flex items-center gap-2">
-                                            ${icons.calendar}
-                                            موعد الجلسة *
-                                        </label>
-                                        <input
-                                            type="date"
-                                            id="hearingDate"
-                                            value="${formData.hearingDate}"
-                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
-                                <button
-                                    onclick="handleAddSuspect()"
-                                    class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition disabled:bg-gray-400"
-                                    ${syncing ? 'disabled' : ''}
-                                >
-                                    ${syncing ? 'جاري الحفظ...' : 'حفظ البيانات'}
-                                </button>
-                            </div>
-                        ` : ''}
-
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="text-gray-600 text-sm">إجمالي المطلوبين</div>
-                                <div class="text-3xl font-bold text-blue-600">${suspects.length}</div>
-                            </div>
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="text-gray-600 text-sm">جلسات اليوم</div>
-                                <div class="text-3xl font-bold text-red-600">
-                                    ${suspects.filter(s => isToday(s.hearingDate)).length}
-                                </div>
-                            </div>
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="text-gray-600 text-sm">جلسات الغد</div>
-                                <div class="text-3xl font-bold text-green-600">
-                                    ${suspects.filter(s => isTomorrow(s.hearingDate)).length}
-                                </div>
-                            </div>
-                            <div class="bg-white rounded-lg shadow-md p-4">
-                                <div class="text-gray-600 text-sm">نتائج البحث</div>
-                                <div class="text-3xl font-bold text-purple-600">${filteredSuspects.length}</div>
-                            </div>
-                        </div>
-
-                        ${filteredSuspects.length === 0 ? `
-                            <div class="bg-white rounded-lg shadow-md p-12 text-center">
-                                <p class="text-gray-500 text-lg">لا توجد سجلات مطابقة</p>
-                            </div>
-                        ` : `
-                            ${todaySuspects.length > 0 ? `
-                                <div class="mb-8">
-                                    <h2 class="text-2xl font-bold text-red-600 mb-4 flex items-center gap-2">
-                                        🔔 جلسات اليوم
-                                    </h2>
-                                    <div class="space-y-4">
-                                        ${todaySuspects.map(s => renderSuspectCard(s, 'today')).join('')}
-                                    </div>
-                                </div>
-                            ` : ''}
-
-                            ${tomorrowSuspects.length > 0 ? `
-                                <div class="mb-8">
-                                    <h2 class="text-2xl font-bold text-green-600 mb-4 flex items-center gap-2">
-                                        ⏰ جلسات الغد
-                                    </h2>
-                                    <div class="space-y-4">
-                                        ${tomorrowSuspects.map(s => renderSuspectCard(s, 'tomorrow')).join('')}
-                                    </div>
-                                </div>
-                            ` : ''}
-
-                            ${otherSuspects.length > 0 ? `
-                                <div>
-                                    <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                        📅 جلسات أخرى
-                                    </h2>
-                                    <div class="space-y-4">
-                                        ${otherSuspects.map(s => renderSuspectCard(s, 'other')).join('')}
-                                    </div>
-                                </div>
-                            ` : ''}
-                        `}
                     </div>
-
-                    ${renderContactModal()}
-                    ${renderContactsList()}
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="text-gray-600 text-sm">نتائج البحث</div>
+                        <div class="text-3xl font-bold text-purple-600">${filteredSuspects.length}</div>
+                    </div>
                 </div>
-            `;
 
-            // Add event listeners
+                ${filteredSuspects.length === 0 ? `
+                    <div class="bg-white rounded-lg shadow-md p-12 text-center">
+                        <p class="text-gray-500 text-lg">لا توجد سجلات مطابقة</p>
+                    </div>
+                ` : `
+                    ${todaySuspects.length > 0 ? `
+                        <div class="mb-8">
+                            <h2 class="text-2xl font-bold text-red-600 mb-4 flex items-center gap-2">
+                                🔔 جلسات اليوم
+                            </h2>
+                            <div class="space-y-4">
+                                ${todaySuspects.map(s => renderSuspectCard(s, 'today')).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${tomorrowSuspects.length > 0 ? `
+                        <div class="mb-8">
+                            <h2 class="text-2xl font-bold text-green-600 mb-4 flex items-center gap-2">
+                                ⏰ جلسات الغد
+                            </h2>
+                            <div class="space-y-4">
+                                ${tomorrowSuspects.map(s => renderSuspectCard(s, 'tomorrow')).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${otherSuspects.length > 0 ? `
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                📅 جلسات أخرى
+                            </h2>
+                            <div class="space-y-4">
+                                ${otherSuspects.map(s => renderSuspectCard(s, 'other')).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                `}
+                 <div class="bg-green-50 border border-green-200 rounded-lg p-4 mt-6">
+                    <p class="text-sm text-green-800 flex items-center gap-2">
+                        ✅ <strong>متصل بالسحابة:</strong> جميع التغييرات يتم حفظها تلقائيًا ومشاركتها مع جميع الأجهزة فورًا
+                    </p>
+                </div>
+            </div>
+
+            ${renderContactModal()}
+            ${renderContactsList()}
+           
+        </div>
+
+    `;
+
             setupEventListeners();
+        }
+
+        let searchTimeout;
+
+        function debounceSearch(value) {
+            searchInputValue = value;
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchTerm = value;
+                render();
+            }, 900);
         }
 
         function setupEventListeners() {
@@ -945,7 +1044,6 @@
                 });
             }
 
-            // Form inputs
             const caseNumberInput = document.getElementById('caseNumber');
             if (caseNumberInput) {
                 caseNumberInput.addEventListener('input', (e) => {
@@ -985,28 +1083,6 @@
             if (hearingDateInput) {
                 hearingDateInput.addEventListener('input', (e) => {
                     formData.hearingDate = e.target.value;
-                });
-            }
-
-            // Contact form inputs
-            const contactNameInput = document.getElementById('contactName');
-            if (contactNameInput) {
-                contactNameInput.addEventListener('input', (e) => {
-                    contactFormData.name = e.target.value;
-                });
-            }
-
-            const contactJobInput = document.getElementById('contactJob');
-            if (contactJobInput) {
-                contactJobInput.addEventListener('input', (e) => {
-                    contactFormData.job = e.target.value;
-                });
-            }
-
-            const contactPhoneInput = document.getElementById('contactPhone');
-            if (contactPhoneInput) {
-                contactPhoneInput.addEventListener('input', (e) => {
-                    contactFormData.phone = e.target.value;
                 });
             }
         }
